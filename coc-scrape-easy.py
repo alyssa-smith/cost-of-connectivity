@@ -4,10 +4,11 @@ from mechanize._opener import urlopen
 from mechanize._form import ParseResponse
 from bs4 import BeautifulSoup
 from selenium import webdriver
-import os, datetime
+import os, datetime, ast
 import pandas as pd
 
-#easy to scrape: time warner, google fiber, istep, lmi, comcast, lus fiber
+#"easy to scrape": time warner, istep, lmi, comcast, lus fiber
+#DONE: google fiber
 
 zipCodes = {}
 zipCodes['dc'] = 20036
@@ -160,7 +161,86 @@ def scrape_google_fiber():
     google = pd.DataFrame.from_dict(plans)
     #make pandas dataframe from dict containing data; a pandas dataframe a) writes neatly to .csv (and back from .csv) and b) turns dicts into a very nicely readable table format. 
     return google
+
+#google = scrape_google_fiber()
+#print google
     
-google = scrape_google_fiber()
-print google
+def scrape_istep():
+    plans = {}
+    when = datetime.datetime.now()
+    webAddress = 'http://www.istep.com/internet/'
+    content = urllib2.urlopen(webAddress).read()
+    soup = BeautifulSoup(content)
+    services  = soup.find_all('h3')
+    services.pop(0)
+    index = 0
+    for s in services:
+        services[index] =re.sub('.h3.|\<', '', str(s))
+        
+        plans[services[index]] = {}
+        index += 1
+    #print services
+    #services are the types of internet service they offer
+    #wait is that too obvious?
+    #not for future me probably
+    #dear future me, this is exactly how good at things i think you are.
+    #ps-i'm so sorry
+    #print plans
+    content = re.sub('\n',' ', content)
+    paramTables =  soup.find_all('table')
+    paramTables.pop(0)
+    #print len(services)
+   # print len(paramTables)
+    o = 0
+    for p in paramTables:
+        tableEntries =  p.find_all('tr')
+        attrs = re.sub('\<th\>|\</th\>|\[|\]', '', str(tableEntries[0].find_all('th'))).split(',')
+        #attrs contains package attributes
+        for t in tableEntries[1:]:
+            #for each type of internet service and then for each attribute in the list of attributes, write the cost/attributes
+            b = 1
+            params = t.find_all('td')
+            #print params
+            
+            
+            if services[o] != 'Dialup':
+                name = re.sub('\<td\>|\</td\>|\<strong\>|\</strong\>|\<span class="alert"\>|[\*]+|\</span\>', '', str(params[0]))
+                plans[services[o]][name] = {}
+                for a in attrs[1:]:
+                    plans[services[o]][name][re.sub('td', '', str(a))] = re.sub('\<td\>|\</td\>', '', str(params[b]))
+                    b += 1
+            else:
+                b = 0
+                for a in attrs:
+                    #print a
+                    pr = re.sub('\<td\>|\</td\>', '', str(params[b]))
+                    #print pr
+                    b += 1
+                    plans[services[o]][a] = pr
+                
+            
+        o += 1
+    
+    #print plans
+    plansNeater = {}
+    for internet in plans.keys():
+        #print internet
+        #print plans[internet]
+        if internet != 'Dialup':
+            for level in plans[internet].keys():
+                plansNeater[str(internet) + ' ' + str(level)] = plans[internet][level]
+        else:
+            for k in plans[internet].keys(): 
+                plansNeater[str(internet) + ' ' + str(k)] = {}
+                plansNeater[str(internet) + ' ' + str(k)][' Monthly'] = plans[internet][k]
+        
+            
+    #print plansNeater
+    istep = pd.DataFrame.from_dict(plansNeater)
+    return istep
+    
+print scrape_istep()
+    
+    
+
 
