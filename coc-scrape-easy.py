@@ -53,49 +53,70 @@ def scrape_time_warner(city):
 def scrape_google_fiber():
     
     webAddress = 'https://fiber.google.com/cities/kansascity/plans/'
+    #note that this can also be generalize to other cities w/ google fiber like austin, tx
     capping = re.findall('[A-Za-z]+ data caps', urllib2.urlopen(webAddress).read())
-    #print capping
+    #checks for mention of data caps; 
     noCaps = True
+    
     for i in capping:
-        #print i
-        #print i=="No data caps"
         if i!= "No data caps":
             noCaps = False
             print "Google changed their data cap policy!"
             
     monthlyCosts = []
+    #cost you pay per month on this plan
     setupFees = []
+    #any setup fees for you to start getting google fiber
+    
+    #i'm really sorry for the ugliness of the following regular expressions.
+    
     for m in re.findall('div class="pricing-table widget".{2000}', re.sub('\n', '', urllib2.urlopen(webAddress).read())):
+        #pricing-table-widget is the div name for the table lines holding most of the pricing information we care about. 
+        #so if we grab the 2000 characters after the pricing-table-widget begins
+        #we can get the information we need. 
+        
         for t in re.findall('\<p\>[/A-Z a-z0-9\&;\$()\<\>="\*+]+', m):
+            #iterates over columns of table, which correspond to plans (they always scrape in the same order)
             if re.findall('.span class="strikethrough".\$[0-9]+./span. construction fee', t) != []:
+                #checks for mention of a construction fee--if it's crossed out, there isn't one. 
+                #this instance is much more people-readable than scraper-readable. :(
                 setupFees.append('none')
             else:
+                #else we check for for the mention of a construction fee and record its existence. 
                 t = re.sub('.span class="strikethrough".\$[0-9]+./span. construction fee|.span class="c2".|\<[a-z]\>|\<\/[a-z]\>  +','', t)
                 setupFees.append( re.findall('[ a-zA-Z\$0-9/()]+\<', t))
-            #print
+                
         plans = {}
+        #make a nested dict of plans; each plan has a dict with its attributes that are relevant to coc.
         planList = []
+        #list of plans mentioned in the tables
+        
         for q in re.findall('h3 class="blue". +\$[0-9]+\/mo', m):
+            #gets monthly costs by $[numbers]/mo; there should be as many instances of this as there are plans, and ordered in the same way the plans are (because the order of the columns is invariant)
             monthlyCosts.append(re.sub('h3 class="blue"|  +|\>|\<', '', q))
+            #cleans up monthly cost info so it is more readable
+            
         for n in re.findall('data-plan-id="[a-zA-Z+-]+"', m):
+            #initializes plan name -> empty plan dict
             plans[(re.sub('data-plan-id="|"', '', n))] = {}
             planList.append(re.sub('data-plan-id="|"', '', n))
-    #print setupFees
-   # print plans
+            
     bobbyTables = re.findall('div class="feature-table".{2000}', re.sub('\n', '', urllib2.urlopen(webAddress).read()))
-    #print len(bobbyTables)
+    #gets features and claimed internet speed
     featureList = []
     speedList = []
     for r in re.findall('\<p\>[A-Za-z 0-9\-&();,]+', bobbyTables[0]):
+        #finds speeds, which are in between <p> tags and should have numbers and letters and a few other chars involved (that's what the regular expression is searching for)
+        #the regex below is just cleaning up the expression of the speed
         r = re.sub('\<p\>|  +', '', r)
         r = re.sub('&amp;', 'and', r)
         speedList.append(r)
     s = 0
     for plan in planList:
-        #print s
-        #plans[plan]['speed'] = speedList[s]
+        #writing down when the data was scraped; perhaps we can track how prices change over time
         plans[plan]['time_scraped'] = datetime.datetime.now()
         speeds = sorted(re.findall('[0-9, ]+[Mm]bps', speedList[s]))
+        #we take it as invariant that upload speed is always <= download speed. at the very least it is a maximum-likelihood estimate to make.
         if len(speeds) == 1:
             plans[plan]['upload speed'] = speeds[0]
             plans[plan]['download speed'] = speeds[0]
@@ -104,58 +125,40 @@ def scrape_google_fiber():
             plans[plan]['download speed'] = speeds[1]
         plans[plan]['monthly cost'] = monthlyCosts[s]
         if noCaps:
+            #existence of data cap is a boolean value. 
             plans[plan]['data caps'] = False
         if setupFees[s] != 'none':
-            setupCost = ''
+            setupCost = 'none'
             for i in setupFees[s]:
+                #checks for setupCost and cleans it up should terms exist
                 setupCost += re.sub('  +|\<|[()]', '', i) + ' '
-            #print setupFees[s]
-            #print setupCost
             plans[plan]['setup'] = setupCost
         else:
             plans[plan]['setup'] = setupFees[s]
         s += 1
         
     for i in bobbyTables:
-       # print i
-       # print
-       # print
-       # print
-        #costs = re.findall('$', i)
-        #print costs
         features = re.findall('\<h4\>[A-Z a-z\-&$\<\>0-9]+\</h4', i)
         florp = re.findall('h4 class="blue"\>[A-Za-z&\- ,0-9();,]+', i)
 
         if len(features) == 3:
             p = 0
             for k in planList:
+                #need to add information on contract length.
                 attribute = re.sub('h4 class="blue"\>|  +', ' ', florp[0])
                 parameter = re.sub('\<.{2}|.{3}\>|  +|4|\>', ' ', features[p])
                 if 'Contract' in attribute:
-                    #print parameter
                     if 'No contract' not in parameter:
+                        #adds contract length and special terms
                         plans[k]['contract length'] = re.findall('[0-9]+ year', parameter)[0]
                     else:
                         plans[k]['contract length'] = parameter
-                #plans[k][attribute] = parameter
                 p += 1
-        for j in florp:
-            j = re.sub('  +', '', j.split('>')[1])
-            #print j
-            featureList.append(j)
-            #for k in planList:
-                #plans[k][j] = ''
+
                 
-   # for key in plans.keys():
-      #  print key
-      #  print
-      #  for feat in plans[key].keys():
-           # print feat
-          #  print plans[key][feat]
-          #  print
-       # print
-       # print
+
     google = pd.DataFrame.from_dict(plans)
+    #make pandas dataframe from dict containing data; a pandas dataframe a) writes neatly to .csv (and back from .csv) and b) turns dicts into a very nicely readable table format. 
     return google
     
 google = scrape_google_fiber()
